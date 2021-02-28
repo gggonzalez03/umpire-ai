@@ -6,6 +6,11 @@
 #include "I2Cdev.h"
 #include "MPU6050.h"
 
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
+
 #define AZ_BUFFER_SIZE 100
 
 
@@ -42,6 +47,7 @@ int az0_hit, az1_hit;
 uint8_t current_state = WAIT_SERVE_START, hit, black_score, red_score;
 uint8_t *server_score, *receiver_score; // Assuming that black is the first server
 uint8_t server; // server: 2 is none, server: 0 is black, 1 is red
+uint8_t score_status;
 unsigned long az0_hit_timestamp, az1_hit_timestamp, hit_timestamp, current_timestamp;
 
 float az0_buffer[AZ_BUFFER_SIZE];
@@ -67,19 +73,66 @@ void print_game_details(uint8_t black_score, uint8_t red_score, uint8_t current_
  **************************************/
 void umpire_ai_task(void *parameters);
 
+
+/**************************************
+ * BLE Variables
+ **************************************/
+#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+
+BLEServer* pServer = NULL;
+BLECharacteristic* pCharacteristic = NULL;
+bool deviceConnected = false;
+bool oldDeviceConnected = false;
+
+class ServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      deviceConnected = true;
+      Serial.println("Device Connected");
+      BLEDevice::startAdvertising();
+    };
+
+    void onDisconnect(BLEServer* pServer) {
+      deviceConnected = false;
+    }
+
+    void onWrite(BLECharacteristic *pCharacteristic) {
+      std::string value = pCharacteristic->getValue();
+
+      if (value.length() > 0) {
+        Serial.println("*********");
+        Serial.print("New value: ");
+        for (int i = 0; i < value.length(); i++)
+          Serial.print(value[i]);
+
+        Serial.println();
+        Serial.println("*********");
+      }
+    }
+};
+
+/**************************************
+ * BLE Tasks
+ **************************************/
+void ble_task(void* parameters);
+
 void setup() {
   Wire.setClock(400000);
   Wire.begin();
 
   Serial.begin(115200);
 
-  xTaskCreate(&umpire_ai_task, "umpire_ai_task", 8192, NULL, 1, NULL);
+  xTaskCreate(&umpire_ai_task, "umpire_ai_task", 4096, NULL, 2, NULL);
+  xTaskCreate(&ble_task, "ble_task", 4096, NULL, 1, NULL);
 }
 
 void loop() {
-  vTaskDelay(portMAX_DELAY);
+  vTaskDelete(NULL);
 }
 
+/**************************************
+ * UmpireAI Core Tasks
+ **************************************/
 void umpire_ai_task(void *parameters) {
   mpu0.initialize();
   mpu1.initialize();
@@ -164,7 +217,7 @@ void umpire_ai_task(void *parameters) {
     game_state_update(&current_state, &hit_timestamp, &current_timestamp, &hit);
     
     if (handle_point_award(&current_state, server_score, receiver_score)) {
-      uint8_t score_status = get_scoring_status(black_score, red_score);
+      score_status = get_scoring_status(black_score, red_score);
       uint8_t server_changed = 0;
       if (score_status == DEUCE || score_status == BLACK_ADVANTAGE || score_status == RED_ADVANTAGE) {
         server_changed = handle_serve_switch(&server_score, &receiver_score, &server, 1);
@@ -185,6 +238,11 @@ void umpire_ai_task(void *parameters) {
     }
   }
 }
+
+
+/**************************************
+ * UmpireAI Core Functions
+ **************************************/
 
 /**
  * This function determines the state of the game.
@@ -378,4 +436,68 @@ void print_game_details(uint8_t black_score, uint8_t red_score, uint8_t current_
   }
 
   Serial.print("\n");
+}
+
+
+/**************************************
+ * BLE Tasks
+ **************************************/
+void ble_task(void* parameters) {
+  // Create the BLE Device
+  BLEDevice::init("ESP32");
+
+  // Create the BLE Server
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new ServerCallbacks());
+
+  // Create the BLE Service
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+
+  // Create a BLE Characteristic
+  pCharacteristic = pService->createCharacteristic(
+                      CHARACTERISTIC_UUID,
+                      BLECharacteristic::PROPERTY_READ   |
+                      BLECharacteristic::PROPERTY_WRITE  |
+                      BLECharacteristic::PROPERTY_NOTIFY |
+                      BLECharacteristic::PROPERTY_INDICATE
+                    );
+
+  // https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.descriptor.gatt.client_characteristic_configuration.xml
+  // Create a BLE Descriptor
+  pCharacteristic->addDescriptor(new BLE2902());
+
+  // Start the service
+  pService->start();
+
+  // Start advertising
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(false);
+  pAdvertising->setMinPreferred(0x0);  // set value to 0x00 to not advertise this parameter
+  BLEDevice::startAdvertising();
+  Serial.println("Waiting a client connection to notify...");
+
+  uint32_t data = 0;
+  while (1) {
+    data = 0;
+    data |= (black_score) | (red_score << 8) | (server << 16) | (score_status << 24);
+    // notify changed value
+    if (deviceConnected) {
+        pCharacteristic->setValue((uint8_t*)&data, 4);
+        pCharacteristic->notify();
+        delay(1000); // bluetooth stack will go into congestion, if too many packets are sent, in 6 hours test i was able to go as low as 3ms
+    }
+    // disconnecting
+    if (!deviceConnected && oldDeviceConnected) {
+        delay(500); // give the bluetooth stack the chance to get things ready
+        pServer->startAdvertising(); // restart advertising
+        Serial.println("start advertising");
+        oldDeviceConnected = deviceConnected;
+    }
+    // connecting
+    if (deviceConnected && !oldDeviceConnected) {
+        // do stuff here on connecting
+        oldDeviceConnected = deviceConnected;
+    }
+  }
 }
