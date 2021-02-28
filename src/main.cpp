@@ -40,24 +40,24 @@ enum {
 /**************************************
  * UmpireAI State Variables
  **************************************/
-int16_t a0[3], a1[3];
-int az0_offset, az1_offset;
-uint8_t buffer_position, last_data_point_0 = AZ_BUFFER_SIZE, last_data_point_1 = AZ_BUFFER_SIZE;
-float threshold = 1.5f;
-int az0_hit, az1_hit;
-uint8_t current_state = WAIT_SERVE_START, hit, black_score, red_score;
-uint8_t *server_score, *receiver_score; // Assuming that black is the first server
-uint8_t server; // server: 2 is none, server: 0 is black, 1 is red
-uint8_t score_status;
-unsigned long az0_hit_timestamp, az1_hit_timestamp, hit_timestamp, current_timestamp;
-
-float az0_buffer[AZ_BUFFER_SIZE];
-float az1_buffer[AZ_BUFFER_SIZE];
-
-float az0, az1;
-
 MPU6050 mpu0(0x68);
 MPU6050 mpu1(0x69);
+int16_t a0[3], a1[3];
+int az0_offset, az1_offset;
+float az0_buffer[AZ_BUFFER_SIZE];
+float az1_buffer[AZ_BUFFER_SIZE];
+float az0, az1;
+
+float az_shadow_buffer[AZ_BUFFER_SIZE]; // To be used by 
+
+float threshold = 1.5f;
+uint8_t last_data_point_0 = AZ_BUFFER_SIZE, last_data_point_1 = AZ_BUFFER_SIZE;
+
+uint8_t current_state = WAIT_SERVE_START, hit;
+unsigned long hit_timestamp, current_timestamp;
+
+uint8_t *server_score, *receiver_score, black_score, red_score, score_status;
+uint8_t server; // server: 2 is none, server: 0 is black, 1 is red
 
 const uint8_t BUTTON_PIN = 18;
 const uint8_t LED_RED = 19;
@@ -192,6 +192,9 @@ void calibrate_imu_task(void *parameters) {
 }
 
 void imu_task(void *parameters) {
+
+  uint8_t buffer_position = 0;
+
   while(1) {
     mpu0.getAcceleration(&a0[0], &a0[1], &a0[2]);
     mpu1.getAcceleration(&a1[0], &a1[1], &a1[2]);
@@ -254,14 +257,10 @@ void identify_hit_task(void *parameters) {
       }
 
       if (az0_max > az1_max) {
-        az0_hit_timestamp = millis();
         hit = server;
-        az0_hit++;
       }
       else if (az0_max < az1_max) {
-        az1_hit_timestamp = millis();
         hit = !server;
-        az1_hit++;
       }
 
       xSemaphoreGive(tt_dynamics_smphr);
