@@ -48,7 +48,7 @@ float az0_buffer[AZ_BUFFER_SIZE];
 float az1_buffer[AZ_BUFFER_SIZE];
 float az0, az1;
 
-float az_shadow_buffer[AZ_BUFFER_SIZE]; // To be used by 
+float az_shadow_buffer[AZ_BUFFER_SIZE]; // To be used by identify_hit_task and binary_data_dump_task
 
 float threshold = 1.5f;
 uint8_t last_data_point_0 = AZ_BUFFER_SIZE, last_data_point_1 = AZ_BUFFER_SIZE;
