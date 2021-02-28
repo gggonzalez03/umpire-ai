@@ -58,6 +58,10 @@ float az0, az1;
 MPU6050 mpu0(0x68);
 MPU6050 mpu1(0x69);
 
+const uint8_t BUTTON_PIN = 18;
+const uint8_t LED_RED = 19;
+const uint8_t LED_BLACK = 5;
+
 /**************************************
  * UmpireAI Core Functions
  **************************************/
@@ -66,7 +70,12 @@ uint8_t handle_point_award(uint8_t* current_status, uint8_t* server_score, uint8
 uint8_t handle_serve_switch(uint8_t** server_score, uint8_t** receiver_score, uint8_t* server, uint8_t frequency);
 uint8_t get_scoring_status(uint8_t black_score, uint8_t red_score);
 void print_game_details(uint8_t black_score, uint8_t red_score, uint8_t current_server, uint8_t server_changed, uint8_t score_status);
+void update_leds(uint8_t current_server);
 
+/**************************************
+ * ISRs
+ **************************************/
+void IRAM_ATTR isr();
 
 /**************************************
  * UmpireAI Core Tasks
@@ -122,8 +131,14 @@ void setup() {
 
   Serial.begin(115200);
 
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_BLACK, OUTPUT);
+
+  attachInterrupt(BUTTON_PIN, isr, FALLING);
+
   xTaskCreate(&umpire_ai_task, "umpire_ai_task", 4096, NULL, 2, NULL);
-  xTaskCreate(&ble_task, "ble_task", 4096, NULL, 1, NULL);
+  // xTaskCreate(&ble_task, "ble_task", 4096, NULL, 1, NULL);
 }
 
 void loop() {
@@ -227,8 +242,8 @@ void umpire_ai_task(void *parameters) {
       }
 
       print_game_details(black_score, red_score, server, server_changed, score_status);
+      update_leds(server);
     }
-
     // Serial.println(current_state);
 
     buffer_position++;
@@ -436,6 +451,32 @@ void print_game_details(uint8_t black_score, uint8_t red_score, uint8_t current_
   }
 
   Serial.print("\n");
+}
+
+void update_leds(uint8_t current_server) {
+  switch (current_server) {
+  case 0:
+    // black is serving
+    digitalWrite(LED_BLACK, HIGH);
+    digitalWrite(LED_RED, LOW);
+    break;
+  case 1:
+    // red is serving
+    digitalWrite(LED_BLACK, LOW);
+    digitalWrite(LED_RED, HIGH);
+    break;
+  
+  default:
+    digitalWrite(LED_BLACK, LOW);
+    digitalWrite(LED_RED, LOW);
+    break;
+  }
+}
+/**************************************
+ * ISRs
+ **************************************/
+void IRAM_ATTR isr() {
+  Serial.println("Hello from ISR\n");
 }
 
 
