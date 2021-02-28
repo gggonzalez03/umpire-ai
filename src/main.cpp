@@ -1,5 +1,6 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include <Arduino.h>
 #include <Wire.h>
 
@@ -78,9 +79,22 @@ void update_leds(uint8_t current_server);
 void IRAM_ATTR isr();
 
 /**************************************
+ * UmpireAI Task Control Variables
+ **************************************/
+static SemaphoreHandle_t identify_hit_smphr;      // Signal identify_hit_task
+static SemaphoreHandle_t tt_dynamics_smphr;       // Signal table_tennis_dynamics_task
+static SemaphoreHandle_t dump_binary_data_smphr;  // Signal binary_data_dump_task
+static SemaphoreHandle_t transmit_state_smphr;    // Signal bluetooth_transmit_state_task
+
+/**************************************
  * UmpireAI Core Tasks
  **************************************/
-void umpire_ai_task(void *parameters);
+void calibrate_imu_task(void *parameters);
+void imu_task(void *parameters);
+void identify_hit_task(void *parameters);
+void table_tennis_dynamics_task(void *parameters);
+void binary_data_dump_task(void *parameters);
+void bluetooth_transmit_state_task(void *parameters);
 
 
 /**************************************
@@ -125,10 +139,10 @@ class ServerCallbacks: public BLEServerCallbacks {
  **************************************/
 void ble_task(void* parameters);
 
+
 void setup() {
   Wire.setClock(400000);
   Wire.begin();
-
   Serial.begin(115200);
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
@@ -137,7 +151,16 @@ void setup() {
 
   attachInterrupt(BUTTON_PIN, isr, FALLING);
 
-  xTaskCreatePinnedToCore(umpire_ai_task, "umpire_ai_task", 4096, NULL, 2, NULL, 0);
+  identify_hit_smphr = xSemaphoreCreateBinary();
+  tt_dynamics_smphr = xSemaphoreCreateBinary();
+  dump_binary_data_smphr = xSemaphoreCreateBinary();
+  transmit_state_smphr = xSemaphoreCreateBinary();
+
+  xTaskCreatePinnedToCore(calibrate_imu_task, "calibrate_imu_task", 4096, NULL, 5, NULL, 0);
+
+  xTaskCreatePinnedToCore(imu_task, "imu_task", 4096, NULL, 2, NULL, 0);
+  xTaskCreatePinnedToCore(identify_hit_task, "identify_hit_task", 4096, NULL, 3, NULL, 0);
+  xTaskCreatePinnedToCore(table_tennis_dynamics_task, "table_tennis_dynamics_task", 4096, NULL, 4, NULL, 0);
   xTaskCreatePinnedToCore(ble_task, "ble_task", 4096, NULL, 1, NULL, 1);
 }
 
@@ -148,7 +171,7 @@ void loop() {
 /**************************************
  * UmpireAI Core Tasks
  **************************************/
-void umpire_ai_task(void *parameters) {
+void calibrate_imu_task(void *parameters) {
   mpu0.initialize();
   mpu1.initialize();
 
@@ -165,10 +188,10 @@ void umpire_ai_task(void *parameters) {
     az1_offset = (i * az1_offset + a1[2]) / (i + 1);
   }
 
-  server_score = &black_score;
-  receiver_score = &red_score;
-  server = 0; // Select black as the first server
+  vTaskDelete(NULL);
+}
 
+void imu_task(void *parameters) {
   while(1) {
     mpu0.getAcceleration(&a0[0], &a0[1], &a0[2]);
     mpu1.getAcceleration(&a1[0], &a1[1], &a1[2]);
@@ -179,19 +202,46 @@ void umpire_ai_task(void *parameters) {
     az0_buffer[buffer_position] = az0;
     az1_buffer[buffer_position] = az1;
 
-    // Serial.println(az0);
-
+    // If a threshold is reached, record the index of the 100th point in the buffer
     if ((abs(az0) > threshold || abs(az1) > threshold) && (last_data_point_0 == AZ_BUFFER_SIZE && last_data_point_1 == AZ_BUFFER_SIZE)) {
       last_data_point_0 = (buffer_position + AZ_BUFFER_SIZE - 21) % AZ_BUFFER_SIZE; // -21 cos we want 20 data points before the trigger
       last_data_point_1 = (buffer_position + AZ_BUFFER_SIZE - 21) % AZ_BUFFER_SIZE;
       hit_timestamp = millis();
     }
 
+    // Once the buffer is filled, identify which side of the table the ball hit
     if (buffer_position == last_data_point_0 || buffer_position == last_data_point_1) {
 
-      int i;
+      xSemaphoreGive(identify_hit_smphr);
+
+      last_data_point_0 = AZ_BUFFER_SIZE;
+      last_data_point_1 = AZ_BUFFER_SIZE;
+    }
+
+    // Only try to decide scoring when an ongoing rally ended, aka the game is not currently waiting for a serve
+    current_timestamp = millis();
+    if (current_timestamp - hit_timestamp > 1500 && current_state != WAIT_SERVE_START) {
+      xSemaphoreGive(tt_dynamics_smphr); 
+    }
+
+    buffer_position++;
+
+    if (buffer_position == AZ_BUFFER_SIZE) {
+      buffer_position = 0;
+    }
+  }
+}
+
+void identify_hit_task(void *parameters) {
+
+  server = 0; // Select black as the first server
+
+  while (1) {
+    if (xSemaphoreTake(identify_hit_smphr, portMAX_DELAY)) {
+
       float az0_max = 0.0f, az1_max = 0.0f;
-      for (i = 0; i < AZ_BUFFER_SIZE; i++) {
+
+      for (int i = 0; i < AZ_BUFFER_SIZE; i++) {
         // Serial.println(az0_buffer[(i + last_data_point_0 + 1) % AZ_BUFFER_SIZE]);
         // Serial.print(",");
         // Serial.println(az1_buffer[(i + last_data_point_1 + 1) % AZ_BUFFER_SIZE]);
@@ -214,43 +264,46 @@ void umpire_ai_task(void *parameters) {
         az1_hit++;
       }
 
-      last_data_point_0 = AZ_BUFFER_SIZE;
-      last_data_point_1 = AZ_BUFFER_SIZE;
-
-      // Serial.print(az0_hit);
-      // Serial.print(", \t");
-      // Serial.print(az1_hit);
-      // Serial.print(", \t");
-      // Serial.print(az1_hit_timestamp - az0_hit_timestamp);
-      // Serial.print(" ms");
-      // Serial.print(", \t");
-      // Serial.print(az0_hit_timestamp - az1_hit_timestamp);
-      // Serial.println(" ms");
+      xSemaphoreGive(tt_dynamics_smphr);
     }
+  }
+}
 
-    current_timestamp = millis();
-    game_state_update(&current_state, &hit_timestamp, &current_timestamp, &hit);
-    
-    if (handle_point_award(&current_state, server_score, receiver_score)) {
-      score_status = get_scoring_status(black_score, red_score);
-      uint8_t server_changed = 0;
-      if (score_status == DEUCE || score_status == BLACK_ADVANTAGE || score_status == RED_ADVANTAGE) {
-        server_changed = handle_serve_switch(&server_score, &receiver_score, &server, 1);
+void table_tennis_dynamics_task(void *parameters) {
+
+  server_score = &black_score;
+  receiver_score = &red_score;
+
+  while (1) {
+    if (xSemaphoreTake(tt_dynamics_smphr, portMAX_DELAY)) {
+      game_state_update(&current_state, &hit_timestamp, &current_timestamp, &hit);
+      Serial.println(current_state);
+      if (handle_point_award(&current_state, server_score, receiver_score)) {
+        score_status = get_scoring_status(black_score, red_score);
+        uint8_t server_changed = 0;
+        if (score_status == DEUCE || score_status == BLACK_ADVANTAGE || score_status == RED_ADVANTAGE) {
+          server_changed = handle_serve_switch(&server_score, &receiver_score, &server, 1);
+        }
+        else {
+          server_changed = handle_serve_switch(&server_score, &receiver_score, &server, 2);
+        }
+
+        print_game_details(black_score, red_score, server, server_changed, score_status);
+        update_leds(server);
       }
-      else {
-        server_changed = handle_serve_switch(&server_score, &receiver_score, &server, 2);
-      }
-
-      print_game_details(black_score, red_score, server, server_changed, score_status);
-      update_leds(server);
     }
-    // Serial.println(current_state);
+  }
+}
 
-    buffer_position++;
+void binary_data_dump_task(void *parameters) {
+  while (1) {
 
-    if (buffer_position == AZ_BUFFER_SIZE) {
-      buffer_position = 0;
-    }
+  }
+}
+
+void bluetooth_transmit_state_task(void *parameters) {
+  while (1) {
+
   }
 }
 
