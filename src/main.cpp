@@ -137,8 +137,8 @@ void setup() {
 
   attachInterrupt(BUTTON_PIN, isr, FALLING);
 
-  xTaskCreate(&umpire_ai_task, "umpire_ai_task", 4096, NULL, 2, NULL);
-  // xTaskCreate(&ble_task, "ble_task", 4096, NULL, 1, NULL);
+  xTaskCreatePinnedToCore(umpire_ai_task, "umpire_ai_task", 4096, NULL, 2, NULL, 0);
+  xTaskCreatePinnedToCore(ble_task, "ble_task", 4096, NULL, 1, NULL, 1);
 }
 
 void loop() {
