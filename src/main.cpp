@@ -1,8 +1,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+
 #include <Arduino.h>
 #include <Wire.h>
+#include "SPIFFS.h"
 
 #include "I2Cdev.h"
 #include "MPU6050.h"
@@ -73,6 +75,7 @@ void game_state_update(uint8_t *current_state, unsigned long *hit_timestamp, uns
 uint8_t handle_point_award(uint8_t* current_status, uint8_t* server_score, uint8_t* receiver_score);
 uint8_t handle_serve_switch(uint8_t** server_score, uint8_t** receiver_score, uint8_t* server, uint8_t frequency);
 uint8_t get_scoring_status(uint8_t black_score, uint8_t red_score);
+void print_spiffs_contents(void);
 void print_game_details(uint8_t black_score, uint8_t red_score, uint8_t current_server, uint8_t server_changed, uint8_t score_status);
 void update_leds(uint8_t current_server);
 
@@ -147,6 +150,8 @@ void setup() {
   Wire.setClock(400000);
   Wire.begin();
   Serial.begin(115200);
+
+  print_spiffs_contents();
 
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   pinMode(LED_RED, OUTPUT);
@@ -461,6 +466,27 @@ uint8_t get_scoring_status(uint8_t black_score, uint8_t red_score) {
   }
 
   return GAME_ONGOING;
+}
+
+void print_spiffs_contents(void) {
+  // This will allocate 1.5MB of the flash to SPIFFS
+  if (!SPIFFS.begin(true)) {
+    Serial.println("An Error has occurred while mounting SPIFFS");
+    return;
+  }
+ 
+  File root = SPIFFS.open("/");
+ 
+  File file = root.openNextFile();
+ 
+  while(file){
+ 
+      Serial.print("FILE: ");
+      Serial.println(file.name());
+      Serial.println(file.size());
+ 
+      file = root.openNextFile();
+  }
 }
 
 /**
