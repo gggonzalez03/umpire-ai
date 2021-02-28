@@ -12,7 +12,10 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 
-#define AZ_BUFFER_SIZE 100
+#define AZ_BUFFER_SIZE      100
+
+#define LED_INDICATORS_ON   1
+#define BUTTON_SELECTOR     1
 
 
 /**************************************
@@ -276,7 +279,16 @@ void table_tennis_dynamics_task(void *parameters) {
   while (1) {
     if (xSemaphoreTake(tt_dynamics_smphr, portMAX_DELAY)) {
       game_state_update(&current_state, &hit_timestamp, &current_timestamp, &hit);
-      Serial.println(current_state);
+      
+      #ifdef LED_INDICATORS_ON
+      if (current_state == 0) {
+        update_leds(server);
+      }
+      else {
+        update_leds(0xFF);
+      }
+      #endif
+      
       if (handle_point_award(&current_state, server_score, receiver_score)) {
         score_status = get_scoring_status(black_score, red_score);
         uint8_t server_changed = 0;
@@ -288,7 +300,6 @@ void table_tennis_dynamics_task(void *parameters) {
         }
 
         print_game_details(black_score, red_score, server, server_changed, score_status);
-        update_leds(server);
       }
     }
   }
