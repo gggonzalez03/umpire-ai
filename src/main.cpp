@@ -58,6 +58,7 @@ float az0, az1;
 float az0_shadow_buffer[AZ_BUFFER_SIZE];
 float az1_shadow_buffer[AZ_BUFFER_SIZE];
 uint8_t which_az_shadow_buffer;
+float data_label = 0.0f;
 
 float threshold = 1.5f;
 uint8_t last_data_point_0 = AZ_BUFFER_SIZE, last_data_point_1 = AZ_BUFFER_SIZE;
@@ -343,9 +344,10 @@ void binary_data_dump_task(void *parameters) {
       }
 
       binary_dump_file = SPIFFS.open("/data_dump.bin", "a+");
-      
+
       if (binary_dump_file) {
-        Serial.println(binary_dump_file.write(az_buffer, AZ_BUFFER_SIZE * sizeof(float)));
+        binary_dump_file.write(az_buffer, AZ_BUFFER_SIZE * sizeof(float));
+        binary_dump_file.write((uint8_t*)(&data_label), 1 * sizeof(float));
 
         if (binary_dump_file.size() >= MAX_BIN_DUMP_SIZE) {
           binary_dump_file.close();
