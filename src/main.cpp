@@ -57,6 +57,7 @@ float az0, az1;
 // To be used by identify_hit_task and binary_data_dump_task
 float az0_shadow_buffer[AZ_BUFFER_SIZE];
 float az1_shadow_buffer[AZ_BUFFER_SIZE];
+uint8_t which_az_shadow_buffer;
 
 float threshold = 1.5f;
 uint8_t last_data_point_0 = AZ_BUFFER_SIZE, last_data_point_1 = AZ_BUFFER_SIZE;
@@ -281,9 +282,11 @@ void identify_hit_task(void *parameters) {
 
       if (az0_max > az1_max) {
         hit = server;
+        which_az_shadow_buffer = 0;
       }
       else if (az0_max < az1_max) {
         hit = !server;
+        which_az_shadow_buffer = 1;
       }
       xSemaphoreGive(dump_binary_data_smphr);
       xSemaphoreGive(tt_dynamics_smphr);
@@ -327,23 +330,31 @@ void table_tennis_dynamics_task(void *parameters) {
 
 void binary_data_dump_task(void *parameters) {
 
-  binary_dump_file = SPIFFS.open("/data_dump.bin", "a+");
+  uint8_t* az_buffer = NULL;
 
   while (1) {
     if (xSemaphoreTake(dump_binary_data_smphr, portMAX_DELAY)) {
+
+      if (!which_az_shadow_buffer) {
+        az_buffer = (uint8_t*)az0_shadow_buffer;
+      }
+      else {
+        az_buffer = (uint8_t*)az1_shadow_buffer;
+      }
+
+      binary_dump_file = SPIFFS.open("/data_dump.bin", "a+");
+      
       if (binary_dump_file) {
-        Serial.println(binary_dump_file.write((uint8_t*)az0_shadow_buffer, AZ_BUFFER_SIZE * sizeof(float)));
-        Serial.println(binary_dump_file.size());
+        Serial.println(binary_dump_file.write(az_buffer, AZ_BUFFER_SIZE * sizeof(float)));
 
         if (binary_dump_file.size() >= MAX_BIN_DUMP_SIZE) {
           binary_dump_file.close();
           Serial.println("File closed.");
         }
+        binary_dump_file.close();
       }
     }
   }
-
-  binary_dump_file.close();
 }
 
 void bluetooth_transmit_state_task(void *parameters) {
