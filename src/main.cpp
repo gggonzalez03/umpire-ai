@@ -15,6 +15,7 @@
 #include <BLE2902.h>
 
 #define AZ_BUFFER_SIZE      100
+#define MAX_BIN_DUMP_SIZE   1000000
 
 #define LED_INDICATORS_ON   1
 #define BUTTON_SELECTOR     1
@@ -53,7 +54,9 @@ float az0_buffer[AZ_BUFFER_SIZE];
 float az1_buffer[AZ_BUFFER_SIZE];
 float az0, az1;
 
-float az_shadow_buffer[AZ_BUFFER_SIZE]; // To be used by identify_hit_task and binary_data_dump_task
+// To be used by identify_hit_task and binary_data_dump_task
+float az0_shadow_buffer[AZ_BUFFER_SIZE];
+float az1_shadow_buffer[AZ_BUFFER_SIZE];
 
 float threshold = 1.5f;
 uint8_t last_data_point_0 = AZ_BUFFER_SIZE, last_data_point_1 = AZ_BUFFER_SIZE;
@@ -63,6 +66,8 @@ unsigned long hit_timestamp, current_timestamp;
 
 uint8_t *server_score, *receiver_score, black_score, red_score, score_status;
 uint8_t server; // server: 2 is none, server: 0 is black, 1 is red
+
+File binary_dump_file;
 
 const uint8_t BUTTON_PIN = 18;
 const uint8_t LED_RED = 19;
@@ -166,10 +171,14 @@ void setup() {
 
   xTaskCreatePinnedToCore(calibrate_imu_task, "calibrate_imu_task", 4096, NULL, 5, NULL, 0);
 
+  // Core 0 Tasks
   xTaskCreatePinnedToCore(imu_task, "imu_task", 4096, NULL, 2, NULL, 0);
   xTaskCreatePinnedToCore(identify_hit_task, "identify_hit_task", 4096, NULL, 3, NULL, 0);
   xTaskCreatePinnedToCore(table_tennis_dynamics_task, "table_tennis_dynamics_task", 4096, NULL, 4, NULL, 0);
-  xTaskCreatePinnedToCore(ble_task, "ble_task", 4096, NULL, 1, NULL, 1);
+
+  // Core 1 Tasks
+  xTaskCreatePinnedToCore(binary_data_dump_task, "binary_data_dump_task", 4096, NULL, 1, NULL, 1);
+  // xTaskCreatePinnedToCore(ble_task, "ble_task", 4096, NULL, 1, NULL, 1);
 }
 
 void loop() {
@@ -251,16 +260,22 @@ void identify_hit_task(void *parameters) {
     if (xSemaphoreTake(identify_hit_smphr, portMAX_DELAY)) {
 
       float az0_max = 0.0f, az1_max = 0.0f;
+      float current_az0, current_az1;
 
       for (int i = 0; i < AZ_BUFFER_SIZE; i++) {
-        // Serial.println(az0_buffer[(i + last_data_point_0 + 1) % AZ_BUFFER_SIZE]);
+
+        current_az0 = az0_shadow_buffer[i] = az0_buffer[(i + last_data_point_0 + 1) % AZ_BUFFER_SIZE];
+        current_az1 = az1_shadow_buffer[i] = az1_buffer[(i + last_data_point_1 + 1) % AZ_BUFFER_SIZE];
+
+        // Serial.println(current_az0);
         // Serial.print(",");
-        // Serial.println(az1_buffer[(i + last_data_point_1 + 1) % AZ_BUFFER_SIZE]);
-        if (az0_buffer[(i + last_data_point_0 + 1) % AZ_BUFFER_SIZE] > az0_max) {
-          az0_max = az0_buffer[(i + last_data_point_0 + 1) % AZ_BUFFER_SIZE];
+        // Serial.println(current_az1);
+
+        if (current_az0 > az0_max) {
+          az0_max = current_az0;
         }
-        if (az1_buffer[(i + last_data_point_1 + 1) % AZ_BUFFER_SIZE] > az1_max) {
-          az1_max = az1_buffer[(i + last_data_point_1 + 1) % AZ_BUFFER_SIZE];
+        if (current_az1 > az1_max) {
+          az1_max = current_az1;
         }
       }
 
@@ -270,7 +285,7 @@ void identify_hit_task(void *parameters) {
       else if (az0_max < az1_max) {
         hit = !server;
       }
-
+      xSemaphoreGive(dump_binary_data_smphr);
       xSemaphoreGive(tt_dynamics_smphr);
     }
   }
@@ -311,9 +326,24 @@ void table_tennis_dynamics_task(void *parameters) {
 }
 
 void binary_data_dump_task(void *parameters) {
-  while (1) {
 
+  binary_dump_file = SPIFFS.open("/data_dump.bin", "a+");
+
+  while (1) {
+    if (xSemaphoreTake(dump_binary_data_smphr, portMAX_DELAY)) {
+      if (binary_dump_file) {
+        Serial.println(binary_dump_file.write((uint8_t*)az0_shadow_buffer, AZ_BUFFER_SIZE * sizeof(float)));
+        Serial.println(binary_dump_file.size());
+
+        if (binary_dump_file.size() >= MAX_BIN_DUMP_SIZE) {
+          binary_dump_file.close();
+          Serial.println("File closed.");
+        }
+      }
+    }
   }
+
+  binary_dump_file.close();
 }
 
 void bluetooth_transmit_state_task(void *parameters) {
