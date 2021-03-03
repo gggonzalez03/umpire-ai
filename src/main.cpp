@@ -42,6 +42,19 @@ enum {
   RED_ADVANTAGE
 };
 
+/**************************************
+ * UmpireAI Bluetooth Control Enums
+ **************************************/
+enum {
+  NONE = 0,
+  RESTART_MATCH,
+  RESTART_GAME,
+  REVERT_LAST_SCORING,
+  START_DATA_TRANSFER_OVER_BLE,
+  COLLECT_HIT_DATA,
+  COLLECT_NON_HIT_DATA,
+  STOP_DATA_COLLECTION,
+};
 
 /**************************************
  * UmpireAI State Variables
@@ -53,16 +66,17 @@ int az0_offset, az1_offset;
 float az0_buffer[AZ_BUFFER_SIZE];
 float az1_buffer[AZ_BUFFER_SIZE];
 float az0, az1;
+float threshold = 1.5f;
+uint8_t last_data_point_0 = AZ_BUFFER_SIZE, last_data_point_1 = AZ_BUFFER_SIZE;
 
 // To be used by identify_hit_task and binary_data_dump_task
+uint8_t data_dump_enabled;
 float az0_shadow_buffer[AZ_BUFFER_SIZE];
 float az1_shadow_buffer[AZ_BUFFER_SIZE];
 uint8_t which_az_shadow_buffer;
 float data_label = 0.0f;
 
-float threshold = 1.5f;
-uint8_t last_data_point_0 = AZ_BUFFER_SIZE, last_data_point_1 = AZ_BUFFER_SIZE;
-
+uint8_t sets_count;
 uint8_t current_state = WAIT_SERVE_START, hit;
 unsigned long hit_timestamp, current_timestamp;
 
@@ -131,20 +145,6 @@ class ServerCallbacks: public BLEServerCallbacks {
     void onDisconnect(BLEServer* pServer) {
       deviceConnected = false;
     }
-
-    void onWrite(BLECharacteristic *pCharacteristic) {
-      std::string value = pCharacteristic->getValue();
-
-      if (value.length() > 0) {
-        Serial.println("*********");
-        Serial.print("New value: ");
-        for (int i = 0; i < value.length(); i++)
-          Serial.print(value[i]);
-
-        Serial.println();
-        Serial.println("*********");
-      }
-    }
 };
 
 /**************************************
@@ -165,6 +165,9 @@ void setup() {
   pinMode(LED_BLACK, OUTPUT);
 
   attachInterrupt(BUTTON_PIN, isr, FALLING);
+
+  data_dump_enabled = 1;
+  sets_count = 5;
 
   identify_hit_smphr = xSemaphoreCreateBinary();
   tt_dynamics_smphr = xSemaphoreCreateBinary();
@@ -289,7 +292,11 @@ void identify_hit_task(void *parameters) {
         hit = !server;
         which_az_shadow_buffer = 1;
       }
-      xSemaphoreGive(dump_binary_data_smphr);
+
+      if (data_dump_enabled) {
+        xSemaphoreGive(dump_binary_data_smphr);
+      }
+
       xSemaphoreGive(tt_dynamics_smphr);
     }
   }
