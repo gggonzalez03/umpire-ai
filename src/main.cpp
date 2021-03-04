@@ -17,8 +17,8 @@
 #define AZ_BUFFER_SIZE      100
 #define MAX_BIN_DUMP_SIZE   1000000
 
-#define LED_INDICATORS_ON   1
-#define BUTTON_SELECTOR     1
+#define LED_INDICATORS_ON   0
+#define BUTTON_SELECTOR     0
 
 
 /**************************************
@@ -177,11 +177,15 @@ void setup() {
 
   print_spiffs_contents();
 
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  #ifdef LED_INDICATORS_ON
   pinMode(LED_RED, OUTPUT);
   pinMode(LED_BLACK, OUTPUT);
+  #endif
 
+  #ifdef BUTTON_SELECTOR
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
   attachInterrupt(BUTTON_PIN, isr, FALLING);
+  #endif
 
   data_dump_enabled = 0;
   sets_count = 5;
@@ -545,12 +549,16 @@ uint8_t handle_ble_command(uint8_t command) {
   case RESTART_MATCH:
     // Reset scores and server
     black_score = red_score = server = 0;
+    server_score = &black_score;
+    receiver_score = &red_score;
     // Give semaphore to ble task to send new game state
     xSemaphoreGive(transmit_state_smphr);
     break;
   case RESTART_GAME:
     // Reset scores and server
     black_score = red_score = server = 0;
+    server_score = &black_score;
+    receiver_score = &red_score;
     // Give semaphore to ble task to send new game state
     xSemaphoreGive(transmit_state_smphr);
     break;
