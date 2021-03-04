@@ -96,6 +96,7 @@ void game_state_update(uint8_t *current_state, unsigned long *hit_timestamp, uns
 uint8_t handle_point_award(uint8_t* current_status, uint8_t* server_score, uint8_t* receiver_score);
 uint8_t handle_serve_switch(uint8_t** server_score, uint8_t** receiver_score, uint8_t* server, uint8_t frequency);
 uint8_t get_scoring_status(uint8_t black_score, uint8_t red_score);
+uint8_t handle_ble_command(uint8_t command);
 void print_spiffs_contents(void);
 void print_game_details(uint8_t black_score, uint8_t red_score, uint8_t current_server, uint8_t server_changed, uint8_t score_status);
 void update_leds(uint8_t current_server);
@@ -157,7 +158,8 @@ class CharacteristicCallbacks: public BLECharacteristicCallbacks {
     const char* rx_decoded = rx_value.c_str();
 
     if (rx_value.length() > 0) {
-      Serial.printf("%c, %c, %c, %c\n", rx_decoded[0], rx_decoded[1], rx_decoded[2], rx_decoded[3]);
+      Serial.printf("%d\n", rx_decoded[0]);
+      handle_ble_command((uint8_t)rx_decoded[0]);
     }
   }
 };
@@ -533,6 +535,46 @@ uint8_t get_scoring_status(uint8_t black_score, uint8_t red_score) {
   }
 
   return GAME_ONGOING;
+}
+
+uint8_t handle_ble_command(uint8_t command) {
+
+  switch (command) {
+  case NONE:
+    break;
+  case RESTART_MATCH:
+    // Reset scores and server
+    black_score = red_score = server = 0;
+    // Give semaphore to ble task to send new game state
+    xSemaphoreGive(transmit_state_smphr);
+    break;
+  case RESTART_GAME:
+    // Reset scores and server
+    black_score = red_score = server = 0;
+    // Give semaphore to ble task to send new game state
+    xSemaphoreGive(transmit_state_smphr);
+    break;
+  case REVERT_LAST_SCORING:
+    break;
+  case START_DATA_TRANSFER_OVER_BLE:
+    break;
+  case COLLECT_HIT_DATA:
+    data_dump_enabled = 1;
+    data_label = 1;
+    break;
+  case COLLECT_NON_HIT_DATA:
+    data_dump_enabled = 2;
+    data_label = 0;
+    break;
+  case STOP_DATA_COLLECTION:
+    data_dump_enabled = 0;
+    break;
+
+  default:
+    break;
+  }
+
+  return command;
 }
 
 void print_spiffs_contents(void) {
