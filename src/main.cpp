@@ -97,6 +97,7 @@ uint8_t handle_point_award(uint8_t* current_status, uint8_t* server_score, uint8
 uint8_t handle_serve_switch(uint8_t** server_score, uint8_t** receiver_score, uint8_t* server, uint8_t frequency);
 uint8_t get_scoring_status(uint8_t black_score, uint8_t red_score);
 uint8_t handle_ble_command(uint8_t command);
+void handle_service_indicator(uint8_t *previous_state, uint8_t *current_state);
 void print_spiffs_contents(void);
 void print_game_details(uint8_t black_score, uint8_t red_score, uint8_t current_server, uint8_t server_changed, uint8_t score_status);
 void update_leds(uint8_t current_server);
@@ -193,7 +194,7 @@ void setup() {
   identify_hit_smphr = xSemaphoreCreateBinary();
   tt_dynamics_smphr = xSemaphoreCreateBinary();
   dump_binary_data_smphr = xSemaphoreCreateBinary();
-  transmit_state_smphr = xSemaphoreCreateBinary();
+  transmit_state_smphr = xSemaphoreCreateCounting(5, 0);
 
   xTaskCreatePinnedToCore(calibrate_imu_task, "calibrate_imu_task", 4096, NULL, 5, NULL, 0);
 
@@ -328,8 +329,11 @@ void table_tennis_dynamics_task(void *parameters) {
   server_score = &black_score;
   receiver_score = &red_score;
 
+  uint8_t previous_state = 0;
+
   while (1) {
     if (xSemaphoreTake(tt_dynamics_smphr, portMAX_DELAY)) {
+      previous_state = current_state;
       game_state_update(&current_state, &hit_timestamp, &current_timestamp, &hit);
       
       #ifdef LED_INDICATORS_ON
@@ -340,6 +344,15 @@ void table_tennis_dynamics_task(void *parameters) {
         update_leds(0xFF);
       }
       #endif
+      
+      handle_service_indicator(&previous_state, &current_state);
+      // Serial.print(previous_state);
+      // Serial.print(", ");
+      // Serial.print(current_state);
+      // Serial.print(", ");
+      // Serial.print(server);
+      // Serial.print(", ");
+      // Serial.println(hit);
       
       if (handle_point_award(&current_state, server_score, receiver_score)) {
         score_status = get_scoring_status(black_score, red_score);
@@ -585,6 +598,23 @@ uint8_t handle_ble_command(uint8_t command) {
   return command;
 }
 
+/**
+ * This functions updates indicator controls for the ble task. The goal is to turn off indicator
+ * when the serve has been done, and then turn it on when it's time to serve again.
+ * @param previous_state Previous state of the game
+ * @param current_state Current state of the game (after calling game_state_update)
+ * */
+void handle_service_indicator(uint8_t *previous_state, uint8_t *current_state) {
+  if (*previous_state == WAIT_SERVE_START && *current_state == WAIT_SERVE_END) {
+    // *server = 2;
+    xSemaphoreGive(transmit_state_smphr);
+  }
+  else if (*previous_state != WAIT_SERVE_START && *current_state == WAIT_SERVE_START) {
+    // *server = 2;
+    xSemaphoreGive(transmit_state_smphr);
+  }
+}
+
 void print_spiffs_contents(void) {
   // This will allocate 1.5MB of the flash to SPIFFS
   if (!SPIFFS.begin(true)) {
@@ -716,7 +746,7 @@ void ble_task(void* parameters) {
 
   while (1) {
     if (xSemaphoreTake(transmit_state_smphr, portMAX_DELAY) && is_ble_client_connected) {
-      tx_value = ((uint32_t)score_status) | ((uint32_t)black_score << 8) | ((uint32_t)red_score << 16) | ((uint32_t)server << 24);
+      tx_value = ((uint32_t)score_status) | ((uint32_t)black_score << 8) | ((uint32_t)red_score << 16) | ((uint32_t)server << 24) | ((uint32_t)current_state << 28);
       Serial.printf("Transmitting %d\n", tx_value);
       tx_characteristic->setValue(tx_value);
       tx_characteristic->notify();

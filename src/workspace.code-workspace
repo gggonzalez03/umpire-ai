@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		},
+		{
+			"name": "Bare BLE Sample",
+			"path": "../../Bare BLE Sample"
+		}
+	],
+	"settings": {}
+}
