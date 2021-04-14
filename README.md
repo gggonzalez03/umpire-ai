@@ -1,7 +1,7 @@
 # umpire-ai
 
 :white_check_mark: Completed  
-:white_circle: Partially Completed
+:white_circle: Partially Completed  
 :large_blue_circle: In progress  
 :red_circle: Todo  
 
@@ -47,7 +47,7 @@ Note that the AI part of the project is handled by my partner Abhaya Karmacharya
 ### Screenshots
 1. UmpireAI iOS Screenshot
 ![UmpireAI iOS Screenshot](./screenshots/umpire_ai_ios.PNG)
-2. Collected Sensor Data (Zoomed Out)
+2. Collected Sensor Data - First Session (Zoomed Out)
 ![Collected Sensor Data (Zoomed Out)](./screenshots/first_session_data_zoomed_out.png)
-3. Collected Sensor Data (Zoomed In)
+3. Collected Sensor Data - First Session (Zoomed In)
 ![Collected Sensor Data (Zoomed In)](./screenshots/first_session_data_zoomed_in.png)
