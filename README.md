@@ -24,6 +24,9 @@
   :white_check_mark: Send game state to the iPad application in real time  
   :white_check_mark: Send scores to the iPad application  
   :white_check_mark: Receive "game reset" command from the iPad application to zero out scores and reset the current game  
+  :red_circle: Receive "match reset" command from the iPad application to reset the entire match  
+  :red_circle: Receive "collect hit data" command from the iPad application to start collecting ball hit data  
+  :red_circle: Receive "collect non hit data" command from the iPad application to start collecting non ball hit data  
   :red_circle: Enable the Bluetooth File Transfer Profile  
   :red_circle: Allow the binary data file to be transmitted over Bluetooth to the iPad application  
 * Data Collection  
