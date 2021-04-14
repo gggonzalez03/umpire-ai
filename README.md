@@ -54,3 +54,7 @@ Note that the AI part of the project is handled by my partner Abhaya Karmacharya
 ![Collected Sensor Data (Zoomed Out)](./screenshots/first_session_data_zoomed_out.png)
 3. Collected Sensor Data - First Session (Zoomed In)
 ![Collected Sensor Data (Zoomed In)](./screenshots/first_session_data_zoomed_in.png)
+4. FreeRTOS Tasks Plan
+![FreeRTOS Tasks Plan](./screenshots/UmpireAI_Realtime_Design.png)
+5. High Level Architecture
+![High Level Architecture](./screenshots/high_level_arch.png)
