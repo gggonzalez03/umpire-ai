@@ -46,7 +46,7 @@ Note that the AI part of the project is handled by my partner Abhaya Karmacharya
 
 ### Screenshots
 1. UmpireAI iOS Screenshot
-![UmpireAI iOS Screenshot](./screenshots/umpire_ai_ios.png)
+![UmpireAI iOS Screenshot](./screenshots/umpire_ai_ios.PNG)
 2. Collected Sensor Data (Zoomed Out)
 ![Collected Sensor Data (Zoomed Out)](./screenshots/first_session_data_zoomed_out.png)
 3. Collected Sensor Data (Zoomed In)
