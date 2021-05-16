@@ -35,8 +35,10 @@ enum {
 
 enum {
   GAME_ONGOING = 0,
-  BLACK_WINS,
-  RED_WINS,
+  BLACK_WINS_GAME,
+  RED_WINS_GAME,
+  BLACK_WINS_MATCH,
+  RED_WINS_MATCH,
   DEUCE,
   BLACK_ADVANTAGE,
   RED_ADVANTAGE
@@ -49,7 +51,10 @@ enum {
   NONE = 0,
   RESTART_MATCH,
   RESTART_GAME,
-  REVERT_LAST_SCORING,
+  INCREMENT_BLACK_SCORE,
+  DECREMENT_BLACK_SCORE,
+  INCREMENT_RED_SCORE,
+  DECREMENT_RED_SCORE,
   START_DATA_TRANSFER_OVER_BLE,
   COLLECT_HIT_DATA,
   COLLECT_NON_HIT_DATA,
@@ -80,6 +85,9 @@ uint8_t sets_count;
 uint8_t current_state = WAIT_SERVE_START, hit;
 unsigned long hit_timestamp, current_timestamp;
 
+uint8_t best_of_match = 3;
+uint8_t game_winner_declared, match_winner_declared;
+uint8_t black_match_score, red_match_score;
 uint8_t *server_score, *receiver_score, black_score, red_score, score_status;
 uint8_t server; // server: 2 is none, server: 0 is black, 1 is red
 
@@ -94,6 +102,7 @@ const uint8_t LED_BLACK = 5;
  **************************************/
 void game_state_update(uint8_t *current_state, unsigned long *hit_timestamp, unsigned long *current_timestamp, uint8_t *hit);
 uint8_t handle_point_award(uint8_t* current_status, uint8_t* server_score, uint8_t* receiver_score);
+uint8_t handle_match_point_award(uint8_t* current_status, uint8_t* black_match_score, uint8_t* red_match_score);
 uint8_t handle_serve_switch(uint8_t** server_score, uint8_t** receiver_score, uint8_t* server, uint8_t frequency);
 uint8_t get_scoring_status(uint8_t black_score, uint8_t red_score);
 uint8_t handle_ble_command(uint8_t command);
@@ -135,7 +144,7 @@ void bluetooth_transmit_state_task(void *parameters);
 
 uint8_t is_ble_client_connected = 0;
 BLECharacteristic *tx_characteristic;
-uint32_t tx_value;
+uint8_t tx_buffer[8];
 
 /**************************************
  * BLE Classes
@@ -360,6 +369,13 @@ void table_tennis_dynamics_task(void *parameters) {
         if (score_status == DEUCE || score_status == BLACK_ADVANTAGE || score_status == RED_ADVANTAGE) {
           server_changed = handle_serve_switch(&server_score, &receiver_score, &server, 1);
         }
+        else if (score_status == BLACK_WINS_GAME || score_status == RED_WINS_GAME) {
+          handle_match_point_award(&score_status, &black_match_score, &red_match_score);
+          game_winner_declared = 1;
+        }
+        else if (score_status == BLACK_WINS_MATCH || score_status == RED_WINS_MATCH) {
+          match_winner_declared = 1;
+        }
         else {
           server_changed = handle_serve_switch(&server_score, &receiver_score, &server, 2);
         }
@@ -367,6 +383,7 @@ void table_tennis_dynamics_task(void *parameters) {
         xSemaphoreGive(transmit_state_smphr);
 
         print_game_details(black_score, red_score, server, server_changed, score_status);
+        Serial.printf("%d, %d\n", black_match_score, red_match_score);
       }
     }
   }
@@ -477,6 +494,11 @@ void game_state_update(uint8_t *current_state, unsigned long *hit_timestamp, uns
  * @return 1 if point is awarded, 0 if not.
  * */
 uint8_t handle_point_award(uint8_t* current_status, uint8_t* server_score, uint8_t* receiver_score) {
+
+  if (game_winner_declared) {
+    return 0;
+  }
+
   if (*current_status == RECEIVER_MISS) {
     (*server_score)++;
     return 1;
@@ -487,6 +509,36 @@ uint8_t handle_point_award(uint8_t* current_status, uint8_t* server_score, uint8
   }
 
   return 0;
+}
+
+/**
+ * Award the maatch point to the correct player
+ * @param current_status is the current status of the game.
+ * @param black_match_score pointer to the current black match score
+ * @param red_match_score pointer to the current red match score
+ * @return 1 if point is awarded, 0 if not.
+ **/ 
+uint8_t handle_match_point_award(uint8_t* current_status, uint8_t* black_match_score, uint8_t* red_match_score) {
+
+  if (game_winner_declared || match_winner_declared) {
+    return 0;
+  }
+
+  if (*current_status == BLACK_WINS_GAME) {
+    (*black_match_score)++;
+  }
+  else if (*current_status == RED_WINS_GAME) {
+    (*red_match_score)++;
+  }
+
+  if (*black_match_score >= best_of_match) {
+    (*current_status) = BLACK_WINS_MATCH;
+  }
+  if (*red_match_score >= best_of_match) {
+    (*current_status) = RED_WINS_MATCH;
+  }
+
+  return 1;
 }
 
 /**
@@ -517,8 +569,10 @@ uint8_t handle_serve_switch(uint8_t** server_score, uint8_t** receiver_score, ui
  * */
 uint8_t get_scoring_status(uint8_t black_score, uint8_t red_score) {
 
+  uint8_t status = GAME_ONGOING;
+
   if (black_score == 10 && red_score == 10) {
-    return DEUCE;
+    status = DEUCE;
   }
 
   uint8_t higher_score = black_score >= red_score ? black_score : red_score;
@@ -532,26 +586,26 @@ uint8_t get_scoring_status(uint8_t black_score, uint8_t red_score) {
   if (abs(score_diff) >= 2) {
     // If score_diff is negative, it means red_score is higher, and is the winner's score
     if (score_diff < 0) {
-      return RED_WINS;
+      status = RED_WINS_GAME;
     }
     else {
-      return BLACK_WINS;
+      status = BLACK_WINS_GAME;
     }
   }
   else if (abs(score_diff) == 1) {
     // If score_diff is negative, it means red_score is higher
     if (score_diff < 0) {
-      return RED_ADVANTAGE;
+      status = RED_ADVANTAGE;
     }
     else {
-      return BLACK_ADVANTAGE;
+      status = BLACK_ADVANTAGE;
     }
   }
   else if (score_diff == 0) {
-    return DEUCE;
+    status = DEUCE;
   }
 
-  return GAME_ONGOING;
+  return status;
 }
 
 uint8_t handle_ble_command(uint8_t command) {
@@ -564,6 +618,13 @@ uint8_t handle_ble_command(uint8_t command) {
     black_score = red_score = server = 0;
     server_score = &black_score;
     receiver_score = &red_score;
+    game_winner_declared = match_winner_declared = 0;
+
+    // Reset match scores
+    black_match_score = red_match_score = 0;
+
+    score_status = GAME_ONGOING;
+
     // Give semaphore to ble task to send new game state
     xSemaphoreGive(transmit_state_smphr);
     break;
@@ -572,10 +633,28 @@ uint8_t handle_ble_command(uint8_t command) {
     black_score = red_score = server = 0;
     server_score = &black_score;
     receiver_score = &red_score;
+    game_winner_declared = 0;
+
+    score_status = GAME_ONGOING;
+
     // Give semaphore to ble task to send new game state
     xSemaphoreGive(transmit_state_smphr);
     break;
-  case REVERT_LAST_SCORING:
+  case INCREMENT_BLACK_SCORE:
+    black_score = ++black_score;
+    xSemaphoreGive(transmit_state_smphr);
+    break;
+  case DECREMENT_BLACK_SCORE:
+    black_score = black_score ? --black_score : 0;
+    xSemaphoreGive(transmit_state_smphr);
+    break;
+  case INCREMENT_RED_SCORE:
+    red_score = ++red_score;
+    xSemaphoreGive(transmit_state_smphr);
+    break;
+  case DECREMENT_RED_SCORE:
+    red_score = red_score ? --red_score : 0;
+    xSemaphoreGive(transmit_state_smphr);
     break;
   case START_DATA_TRANSFER_OVER_BLE:
     break;
@@ -651,11 +730,17 @@ void print_game_details(uint8_t black_score, uint8_t red_score, uint8_t current_
   case GAME_ONGOING:
     Serial.println("Status: GAME_ONGOING");
     break;
-  case BLACK_WINS:
-    Serial.println("Status: BLACK_WINS");
+  case BLACK_WINS_GAME:
+    Serial.println("Status: BLACK_WINS_GAME");
     break;
-  case RED_WINS:
-    Serial.println("Status: RED_WINS");
+  case RED_WINS_GAME:
+    Serial.println("Status: RED_WINS_GAME");
+    break;
+  case BLACK_WINS_MATCH:
+    Serial.println("Status: BLACK_WINS_MATCH");
+    break;
+  case RED_WINS_MATCH:
+    Serial.println("Status: RED_WINS_MATCH");
     break;
   case DEUCE:
     Serial.println("Status: DEUCE");
@@ -674,7 +759,7 @@ void print_game_details(uint8_t black_score, uint8_t red_score, uint8_t current_
 
   Serial.printf("Black: %d, Red: %d\n", black_score, red_score);
 
-  if (score_status != BLACK_WINS && score_status != RED_WINS) {
+  if (score_status != BLACK_WINS_GAME && score_status != RED_WINS_GAME) {
     if (server_changed) {
       Serial.println("Server changed");
     }
@@ -746,9 +831,14 @@ void ble_task(void* parameters) {
 
   while (1) {
     if (xSemaphoreTake(transmit_state_smphr, portMAX_DELAY) && is_ble_client_connected) {
-      tx_value = ((uint32_t)score_status) | ((uint32_t)black_score << 8) | ((uint32_t)red_score << 16) | ((uint32_t)server << 24) | ((uint32_t)current_state << 28);
-      Serial.printf("Transmitting %d\n", tx_value);
-      tx_characteristic->setValue(tx_value);
+      tx_buffer[0] = score_status;
+      tx_buffer[1] = black_score;
+      tx_buffer[2] = red_score;
+      tx_buffer[3] = (server << 0) | (current_state << 4);
+      tx_buffer[4] = black_match_score;
+      tx_buffer[5] = red_match_score;
+      
+      tx_characteristic->setValue(tx_buffer, 6);
       tx_characteristic->notify();
     }
   }
