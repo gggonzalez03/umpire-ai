@@ -10,13 +10,11 @@
   :white_check_mark: Connect two MPU6050 Inertial Measurement Units (IMUs) through I2C bus  
   :white_check_mark:Develop algorithm to capture relevant data when an acceleration threshold is hit due to a ball hitting the table  
   :white_check_mark:Save 100 data points into a file for each hit (See "Data Collection" section)  
-  :large_blue_circle: Calibrate the IMUs only when the table is parallel to the ground  
-  :large_blue_circle: Stop calibration when the table is folded (perpendicular to the ground)  
 * Microcontroller (ESP32)
   :white_check_mark: Bringup device with FreeRTOS
 * Table Tennis Game Mechanics Algorithm  
   :white_check_mark: Implement game mechanics state machine  
-  :white_circle: Decide when a point should be awarded and to whom (there are still some table tennis rules not taken into consideration)  
+  :white_check_mark: Decide when a point should be awarded and to whom (there are still some table tennis rules not taken into consideration)  
   :white_check_mark: Allow game resets  
   :red_circle: Award point immediately to the other side when there is a double bounce on one side  
 * Bluetooth Low Energy  
@@ -24,9 +22,7 @@
   :white_check_mark: Send game state to the iPad application in real time  
   :white_check_mark: Send scores to the iPad application  
   :white_check_mark: Receive "game reset" command from the iPad application to zero out scores and reset the current game  
-  :red_circle: Receive "match reset" command from the iPad application to reset the entire match  
-  :red_circle: Receive "collect hit data" command from the iPad application to start collecting ball hit data  
-  :red_circle: Receive "collect non hit data" command from the iPad application to start collecting non ball hit data  
+  :white_check_mark: Receive "match reset" command from the iPad application to reset the entire match  
   :red_circle: Enable the Bluetooth File Transfer Profile  
   :red_circle: Allow the binary data file to be transmitted over Bluetooth to the iPad application  
 * Data Collection  
@@ -47,14 +43,25 @@ The scoring system works smoothly except when there are any disturbances on the 
 
 Note that the AI part of the project is handled by my partner Abhaya Karmacharya.
 
+### Installation
+1. Download and install Visual Studio Code: https://code.visualstudio.com/download 
+2. Install PlatformIO on VS Code: https://platformio.org/install 
+3. Clone the Github repository: https://github.com/gggonzalez03/umpire-ai
+4. Open the repo in VS Code
+5. Go to the PlatformIO tab on the left sidebar of VS Code
+6. Connect the ESP32 with a usb cable
+7. Compile and Flash the code on VSCode (use the right arrow button at the bottom)
+
 ### Screenshots
-1. UmpireAI iOS Screenshot
-![UmpireAI iOS Screenshot](./screenshots/umpire_ai_ios.png)
-2. Collected Sensor Data - First Session (Zoomed Out)
+1. UmpireAI iOS Screenshot (in-game)
+![UmpireAI iOS Screenshot](./screenshots/umpire_ai_ios_1.png)
+2. UmpireAI iOS Screenshot (game finished)
+![UmpireAI iOS Screenshot](./screenshots/umpire_ai_ios_2.png)
+3. Collected Sensor Data - First Session (Zoomed Out)
 ![Collected Sensor Data (Zoomed Out)](./screenshots/first_session_data_zoomed_out.png)
-3. Collected Sensor Data - First Session (Zoomed In)
+4. Collected Sensor Data - First Session (Zoomed In)
 ![Collected Sensor Data (Zoomed In)](./screenshots/first_session_data_zoomed_in.png)
-4. FreeRTOS Tasks Plan
+5. FreeRTOS Tasks Plan
 ![FreeRTOS Tasks Plan](./screenshots/UmpireAI_Realtime_Design.png)
-5. High Level Architecture
+6. High Level Architecture
 ![High Level Architecture](./screenshots/high_level_arch.png)
